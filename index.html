@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Track My Bus Prototype</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: Arial, sans-serif;
+    }
+
+    .page {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
+    #homePage {
+      position: relative;
+      text-align: center;
+      color: white;
+    }
+
+    #homePage::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: var(--bg-url, url('https://images.unsplash.com/photo-1517142089942-ba376ce32a2e?auto=format&fit=crop&w=1600&q=80')) 
+                  no-repeat center center/cover;
+      z-index: -1;
+      filter: brightness(0.6);
+    }
+
+    #homePage h1 {
+      font-size: 2.5rem;
+      font-weight: bold;
+    }
+
+    #homePage input, #bgSelect {
+      padding: 12px;
+      width: 250px;
+      border-radius: 25px;
+      border: none;
+      margin-top: 15px;
+    }
+
+    #homePage button {
+      margin-top: 20px;
+      font-size: 1rem;
+      padding: 12px 30px;
+      border-radius: 25px;
+      border: none;
+      background-color: #ffcc00;
+      cursor: pointer;
+    }
+
+    #mapPage {
+      display: none;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    #sidebar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 260px;
+      max-height: 90%;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 12px;
+      overflow-y: auto;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+
+    #sidebar h2 {
+      margin-top: 0;
+    }
+
+    .bus-info {
+      margin-bottom: 15px;
+      padding: 10px;
+      background: #f0f0f0;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <!-- HOME PAGE -->
+  <div id="homePage" class="page">
+    <h1>Welcome to Track My Bus</h1>
+    <p style="margin:10px 0; font-size:1.2rem;">Realtime Transport Tracking for Small Cities</p>
+
+    <input list="citiesList" id="cityInput" placeholder="Search city...">
+    <datalist id="citiesList">
+      <option value="Bhubaneswar"><option value="Varanasi"><option value="Berhampur"><option value="Delhi">
+      <option value="Mumbai"><option value="Kolkata"><option value="Chennai"><option value="Bangalore">
+      <option value="Hyderabad"><option value="Pune"><option value="Ahmedabad"><option value="Jaipur">
+    </datalist>
+
+    <br><br>
+
+    <label for="bgSelect">Choose background:</label>
+    <select id="bgSelect">
+      <option value="https://images.unsplash.com/photo-1517142089942-ba376ce32a2e?auto=format&fit=crop&w=1600&q=80">Bus Interior (Modern)</option>
+      <option value="https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1600&q=80">Classic Yellow Bus</option>
+      <option value="https://images.unsplash.com/photo-1580894908361-967195f6d6f1?auto=format&fit=crop&w=1600&q=80">Bus Stop</option>
+      <option value="https://images.unsplash.com/photo-1509099836639-18ba1795216d?auto=format&fit=crop&w=1600&q=80">City Bus in Traffic</option>
+    </select>
+
+    <br><br>
+    <button onclick="enterMap()">Go to Map</button>
+  </div>
+
+  <!-- MAP PAGE -->
+  <div id="mapPage">
+    <div id="map"></div>
+    <div id="sidebar">
+      <h2>Bus Details</h2>
+      <div id="busDetails"></div>
+
+      <h2>Bus Stops</h2>
+      <ul id="stopList"></ul>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    let map, busMarkers = [], buses = [], stops = [];
+
+    const cityCoords = {
+      Bhubaneswar: [20.2961, 85.8245],
+      Varanasi: [25.3176, 82.9739],
+      Berhampur: [19.314, 84.794],
+      Delhi: [28.7041, 77.1025],
+      Mumbai: [19.076, 72.8777],
+      Kolkata: [22.5726, 88.3639],
+      Chennai: [13.0827, 80.2707],
+      Bangalore: [12.9716, 77.5946],
+      Hyderabad: [17.3850, 78.4867],
+      Pune: [18.5204, 73.8567],
+      Ahmedabad: [23.0225, 72.5714],
+      Jaipur: [26.9124, 75.7873]
+    };
+
+    function enterMap() {
+      const bgUrl = document.getElementById("bgSelect").value;
+      const city = document.getElementById("cityInput").value;
+      const coords = cityCoords[city] || [19.31, 84.79];
+
+      // Set background dynamically
+      document.getElementById("homePage").style.setProperty("--bg-url", `url('${bgUrl}')`);
+      localStorage.setItem("selectedBg", bgUrl); // persist
+      localStorage.setItem("selectedCity", city); // persist
+
+      document.getElementById('homePage').style.display = 'none';
+      document.getElementById('mapPage').style.display = 'block';
+
+      initMap(coords);
+    }
+
+    // On page load, apply persisted selections
+    window.onload = function() {
+      const savedBg = localStorage.getItem("selectedBg");
+      const savedCity = localStorage.getItem("selectedCity");
+      if(savedBg) {
+        document.getElementById("homePage").style.setProperty("--bg-url", `url('${savedBg}')`);
+        document.getElementById("bgSelect").value = savedBg;
+      }
+      if(savedCity) {
+        document.getElementById("cityInput").value = savedCity;
+      }
+    };
+
+    function initMap(center) {
+      map = L.map('map').setView(center, 13);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
+
+      const busIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/61/61231.png',
+        iconSize: [35, 35],
+        iconAnchor: [17, 34],
+        popupAnchor: [0, -30]
+      });
+
+      buses = [
+        { name: "Bus 101", coords: [19.314, 84.792], eta: 300, nextStop: "Gandhi Nagar" },
+        { name: "Bus 202", coords: [19.318, 84.797], eta: 480, nextStop: "City Mall" },
+        { name: "Bus 303", coords: [19.320, 84.790], eta: 720, nextStop: "Railway Station" },
+      ];
+
+      buses.forEach(bus => {
+        const marker = L.marker(bus.coords, { icon: busIcon })
+          .addTo(map)
+          .bindPopup(`<b>${bus.name}</b><br>Next Stop: ${bus.nextStop}<br>ETA: ${formatETA(bus.eta)}`);
+        busMarkers.push({ marker, data: bus });
+      });
+
+      stops = [
+        { name: "Gandhi Nagar", coords: [19.312, 84.794] },
+        { name: "City Mall", coords: [19.316, 84.799] },
+        { name: "Railway Station", coords: [19.319, 84.791] },
+        { name: "Main Market", coords: [19.315, 84.795] },
+        { name: "Central Park", coords: [19.317, 84.793] },
+      ];
+
+      stops.forEach(stop => {
+        L.circleMarker(stop.coords, { radius: 6, color: "blue", fillColor: "blue", fillOpacity: 0.8 })
+          .addTo(map)
+          .bindPopup(`<b>${stop.name}</b>`);
+      });
+
+      updateSidebar();
+      setInterval(simulateMovement, 1000);
+    }
+
+    function simulateMovement() {
+      busMarkers.forEach(busObj => {
+        const lat = busObj.marker.getLatLng().lat + (Math.random() - 0.5) * 0.001;
+        const lng = busObj.marker.getLatLng().lng + (Math.random() - 0.5) * 0.001;
+        busObj.marker.setLatLng([lat, lng]);
+
+        if (busObj.data.eta > 0) busObj.data.eta -= 5;
+
+        busObj.marker.setPopupContent(
+          `<b>${busObj.data.name}</b><br>Next Stop: ${busObj.data.nextStop}<br>ETA: ${formatETA(busObj.data.eta)}`
+        );
+      });
+
+      updateSidebar();
+    }
+
+    function updateSidebar() {
+      const busDetailsDiv = document.getElementById("busDetails");
+      busDetailsDiv.innerHTML = "";
+      buses.forEach(bus => {
+        busDetailsDiv.innerHTML += `
+          <div class="bus-info">
+            <strong>${bus.name}</strong><br>
+            Route: Demo Route<br>
+            Next Stop: ${bus.nextStop}<br>
+            ETA: ${formatETA(bus.eta)}
+          </div>
+        `;
+      });
+
+      const stopList = document.getElementById("stopList");
+      stopList.innerHTML = "";
+      stops.forEach(s => {
+        stopList.innerHTML += `<li>${s.name}</li>`;
+      });
+    }
+
+    function formatETA(seconds) {
+      if (seconds <= 0) return "Arrived";
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins}m ${secs}s`;
+    }
+  </script>
+</body>
+</html>
